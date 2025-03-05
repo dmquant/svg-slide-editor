@@ -1,8 +1,9 @@
 'use client';
 
 import React from 'react';
-import { SVGElement } from '@/types/editor';
+import { SVGElement, TextElement, ImageElement } from '@/types/editor';
 import Tooltip from '../ui/Tooltip';
+import { v4 as uuidv4 } from 'uuid';
 
 export type Tool = 'select' | 'rectangle' | 'circle' | 'text' | 'image';
 
@@ -20,6 +21,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   // Default element properties for new elements (used only for 'text' and 'image' tools)
   const createDefaultElement = (type: SVGElement['type']): Partial<SVGElement> => {
     const baseElement = {
+      id: uuidv4(),
       type,
       x: 100,
       y: 100,
@@ -35,15 +37,18 @@ const Toolbar: React.FC<ToolbarProps> = ({
       case 'text':
         return {
           ...baseElement,
+          type: 'text',
+          fill: '#000000', // Text should be black by default
           text: 'Text',
           fontSize: 18,
           fontFamily: 'Arial',
-        };
+        } as Partial<TextElement>;
       case 'image':
         return {
           ...baseElement,
+          type: 'image',
           href: 'https://via.placeholder.com/100',
-        };
+        } as Partial<ImageElement>;
       default:
         return baseElement;
     }

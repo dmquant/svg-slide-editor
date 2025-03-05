@@ -6,6 +6,7 @@ import { useSvgGenerator } from '@/hooks/useSvgGenerator';
 import { SVGElement } from '@/types/editor';
 import { v4 as uuidv4 } from 'uuid';
 import { Tool } from '@/components/editor/Toolbar';
+import QuickColorPalette from '../ui/QuickColorPalette';
 
 interface CanvasProps {
   elements: SVGElement[];
@@ -272,13 +273,31 @@ const Canvas: React.FC<CanvasProps> = ({
     }
   };
   
+  const handleFillColorChange = (color: string) => {
+    if (selectedElement) {
+      onUpdateElement({
+        ...selectedElement,
+        fill: color
+      });
+    }
+  };
+
+  const handleStrokeColorChange = (color: string) => {
+    if (selectedElement) {
+      onUpdateElement({
+        ...selectedElement,
+        stroke: color
+      });
+    }
+  };
+  
   return (
     <div className="relative w-full h-full flex items-center justify-center bg-gray-50 p-4">
-      <div className="w-[800px] h-[600px] bg-white rounded-md shadow-md overflow-hidden">
+      <div className="w-[800px] h-[600px] bg-white rounded-md shadow-md overflow-hidden relative">
         <svg
           ref={svgRef}
-          viewBox={viewBox}
           className="w-full h-full"
+          viewBox={viewBox}
           onClick={handleCanvasClick}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
@@ -286,23 +305,15 @@ const Canvas: React.FC<CanvasProps> = ({
           onMouseLeave={handleMouseUp}
         >
           {/* Grid background */}
-          <pattern
-            id="grid"
-            width="20"
-            height="20"
-            patternUnits="userSpaceOnUse"
-          >
-            <path
-              d="M 20 0 L 0 0 0 20"
-              fill="none"
-              stroke="rgba(0, 0, 0, 0.1)"
-              strokeWidth="1"
-            />
-          </pattern>
+          <defs>
+            <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f0f0f0" strokeWidth="1"/>
+            </pattern>
+          </defs>
           <rect width="100%" height="100%" fill="url(#grid)" />
           
-          {/* Only render SVG elements on the client side to avoid hydration issues */}
-          {isClient && elements.map((element) => {
+          {/* Render all elements */}
+          {elements.map((element) => {
             const isSelected = selectedElement?.id === element.id;
             
             // Render different element types
@@ -387,9 +398,19 @@ const Canvas: React.FC<CanvasProps> = ({
             }
           })}
           
-          {/* Render the temporary shape while drawing */}
+          {/* Render temporary shape while drawing */}
           {isClient && renderTempShape()}
         </svg>
+        
+        {/* Add the QuickColorPalette component */}
+        {selectedElement && (
+          <QuickColorPalette
+            currentFill={selectedElement.fill}
+            currentStroke={selectedElement.stroke}
+            onSelectFill={handleFillColorChange}
+            onSelectStroke={handleStrokeColorChange}
+          />
+        )}
       </div>
     </div>
   );

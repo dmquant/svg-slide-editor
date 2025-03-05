@@ -32,7 +32,7 @@ function Editor() {
   } = useEditor();
 
   const [currentTool, setCurrentTool] = useState<Tool>('select');
-  const [viewMode, setViewMode] = useState<'design' | 'code'>('design');
+  const [viewMode, setViewMode] = useState<'design' | 'code' | 'preview'>('design');
   const [isCodeVisible, setIsCodeVisible] = useState(true);
 
   // Get current slide elements
@@ -47,8 +47,32 @@ function Editor() {
   };
 
   const handleSave = () => {
-    const projectData = saveProject();
-    alert('Project saved successfully!');
+    try {
+      const projectData = saveProject();
+      
+      // Check if projectData is a string
+      if (typeof projectData === 'string') {
+        // Save to localStorage
+        localStorage.setItem('svg-editor-project', projectData);
+        
+        // Also offer download as a file
+        const blob = new Blob([projectData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'svg-slide-editor-project.json';
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        alert('Project saved successfully!');
+      } else {
+        console.error('Project data is not a string');
+        alert('Failed to save project. Invalid data format.');
+      }
+    } catch (error) {
+      console.error('Failed to save project:', error);
+      alert('Failed to save project. Please try again.');
+    }
   };
 
   const handleExport = () => {
@@ -105,7 +129,7 @@ function Editor() {
         <div className="flex items-center">
           <div className="flex rounded-md overflow-hidden border border-gray-300 mr-3">
             <button 
-              className={`px-3 py-1 text-sm ${viewMode === 'design' ? 'bg-gray-200' : 'bg-white'}`}
+              className={`px-3 py-1 text-sm ${viewMode === 'design' ? 'bg-gray-200' : 'bg-white'} hover:bg-gray-100 transition-colors duration-200`}
               onClick={() => {
                 setViewMode('design');
                 // When switching to design mode, make sure we have code editor visible
@@ -115,8 +139,8 @@ function Editor() {
               Design
             </button>
             <button 
-              className={`px-3 py-1 text-sm ${viewMode === 'code' ? 'bg-gray-200' : 'bg-white'}`}
-              onClick={() => setViewMode('code')}
+              className={`px-3 py-1 text-sm ${viewMode === 'preview' ? 'bg-gray-200' : 'bg-white'} hover:bg-gray-100 transition-colors duration-200`}
+              onClick={() => setViewMode('preview')}
             >
               Preview
             </button>
@@ -135,7 +159,7 @@ function Editor() {
         <div className="flex space-x-2">
           <button 
             onClick={toggleCodeVisibility}
-            className="px-4 py-2 bg-blue-50 text-blue-600 rounded-md flex items-center"
+            className="px-4 py-2 bg-blue-50 text-blue-600 rounded-md flex items-center hover:bg-blue-100 transition-colors duration-200"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 0h8v12H6V4z" clipRule="evenodd" />
@@ -143,17 +167,21 @@ function Editor() {
             {isCodeVisible ? 'Hide Code' : 'Show Code'}
           </button>
           <button 
-            onClick={() => setViewMode('design')}
-            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md flex items-center"
+            onClick={() => setViewMode(viewMode === 'design' ? 'preview' : 'design')}
+            className={`px-4 py-2 rounded-md flex items-center transition-colors duration-200 ${
+              viewMode === 'preview' 
+                ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' 
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
             </svg>
-            Preview
+            {viewMode === 'preview' ? 'Edit Mode' : 'Preview Mode'}
           </button>
           <button 
             onClick={handleSave}
-            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md flex items-center"
+            className="px-4 py-2 bg-green-50 text-green-600 rounded-md flex items-center hover:bg-green-100 transition-colors duration-200"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V5zm11 1H6v8l4-2 4 2V6z" clipRule="evenodd" />
@@ -202,9 +230,11 @@ function Editor() {
                               case 'circle':
                                 return `<circle cx="${el.x + el.width/2}" cy="${el.y + el.height/2}" r="${Math.min(el.width, el.height)/2}" fill="${el.fill}" stroke="${el.stroke}" stroke-width="${el.strokeWidth}" />`;
                               case 'text':
-                                return `<text x="${el.x}" y="${el.y}" font-size="${el.fontSize || 16}" font-family="${el.fontFamily || 'Arial'}" fill="${el.fill}">${el.text || 'Text'}</text>`;
+                                const textEl = el as any;
+                                return `<text x="${el.x}" y="${el.y + (textEl.fontSize || 16)}" font-size="${textEl.fontSize || 16}px" font-family="${textEl.fontFamily || 'Arial'}" fill="${el.fill}">${textEl.text || 'Text'}</text>`;
                               case 'image':
-                                return `<image x="${el.x}" y="${el.y}" width="${el.width}" height="${el.height}" href="${el.href}" />`;
+                                const imgEl = el as any;
+                                return `<image x="${el.x}" y="${el.y}" width="${el.width}" height="${el.height}" href="${imgEl.href || ''}" />`;
                               default:
                                 return '';
                             }
