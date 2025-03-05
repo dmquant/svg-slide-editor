@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { SVGElement } from '@/types/editor';
+import { SVGElement, PathElement, TextElement } from '../types/editor';
 
 interface SvgGeneratorOptions {
   pretty?: boolean;
@@ -73,12 +73,17 @@ export function useSvgGenerator() {
   
   // Generate path element code
   const generatePathCode = (element: SVGElement, indent: string) => {
-    return `${indent}<path d="${element.d || ''}" fill="${element.fill}" stroke="${element.stroke}" stroke-width="${element.strokeWidth}" ${generateAdditionalAttributes(element)} />`;
+    if (element.type !== 'path') return '';
+    
+    return `${indent}<path d="${(element as PathElement).d || ''}" fill="${element.fill}" stroke="${element.stroke}" stroke-width="${element.strokeWidth}" ${generateAdditionalAttributes(element)} />`;
   };
   
   // Generate text element code
   const generateTextCode = (element: SVGElement, indent: string) => {
-    return `${indent}<text x="${element.x}" y="${element.y}" fill="${element.fill}" font-size="${element.fontSize || 16}px" font-family="${element.fontFamily || 'Arial'}" ${generateAdditionalAttributes(element)}>${element.text || 'Text'}</text>`;
+    if (element.type !== 'text') return '';
+    
+    const textElement = element as TextElement;
+    return `${indent}<text x="${element.x}" y="${element.y}" fill="${element.fill}" font-size="${textElement.fontSize || 16}px" font-family="${textElement.fontFamily || 'Arial'}" ${generateAdditionalAttributes(element)}>${textElement.text || 'Text'}</text>`;
   };
   
   // Generate additional attributes (id, transform, etc.)
