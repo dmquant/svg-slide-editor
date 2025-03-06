@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useElementDrag } from '@/hooks/useElementDrag';
 import { useSvgGenerator } from '@/hooks/useSvgGenerator';
-import { SVGElement } from '@/types/editor';
+import { SVGElement, TextElement } from '@/types/editor';
 import { v4 as uuidv4 } from 'uuid';
 import { Tool } from '@/components/editor/Toolbar';
 import QuickColorPalette from '../ui/QuickColorPalette';
@@ -14,6 +14,7 @@ interface CanvasProps {
   onSelectElement: (element: SVGElement | null) => void;
   onUpdateElement: (updatedElement: SVGElement) => void;
   onAddElement: (element: Partial<SVGElement>) => void;
+  onDeleteElement?: (elementId: string) => void;
   currentTool: Tool;
 }
 
@@ -23,6 +24,7 @@ const Canvas: React.FC<CanvasProps> = ({
   onSelectElement,
   onUpdateElement,
   onAddElement,
+  onDeleteElement,
   currentTool,
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -32,10 +34,24 @@ const Canvas: React.FC<CanvasProps> = ({
   const [tempShape, setTempShape] = useState<Partial<SVGElement> | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   
+  // New state for multi-selection
+  const [selectedElements, setSelectedElements] = useState<SVGElement[]>([]);
+  const [selectionBox, setSelectionBox] = useState<{x: number, y: number, width: number, height: number} | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  
   // This effect runs only on the client after hydration
   useEffect(() => {
     setIsClient(true);
   }, []);
+  
+  // Initialize selectedElements from selectedElement
+  useEffect(() => {
+    if (selectedElement) {
+      setSelectedElements([selectedElement]);
+    } else {
+      setSelectedElements([]);
+    }
+  }, [selectedElement]);
   
   const { startDrag } = useElementDrag({
     onDragComplete: onUpdateElement,
@@ -43,17 +59,105 @@ const Canvas: React.FC<CanvasProps> = ({
   
   // Handle element selection
   const handleElementClick = (e: React.MouseEvent, element: SVGElement) => {
-    e.stopPropagation();
+    e.preventDefault(); // Prevent default browser behavior
+    e.stopPropagation(); // Prevent event bubbling to the canvas
+    
+    console.log('Element clicked:', element.id, 'Current tool:', currentTool);
+    console.log('Current selectedElements:', selectedElements.map(e => e.id));
+    console.log('Currently selected element from props:', selectedElement?.id);
+    
     if (currentTool === 'select') {
-      onSelectElement(element);
+      // Multi-selection with modifier keys
+      if ((e.ctrlKey || e.metaKey || e.shiftKey) && isClient) {
+        // If element is already selected, remove it, otherwise add it
+        if (selectedElements.some(el => el.id === element.id)) {
+          console.log('Removing element from selection:', element.id);
+          const newSelection = selectedElements.filter(el => el.id !== element.id);
+          setSelectedElements(newSelection);
+          // Update context's selected element (primary selection)
+          onSelectElement(newSelection.length > 0 ? newSelection[0] : null);
+        } else {
+          console.log('Adding element to selection:', element.id);
+          const newSelection = [...selectedElements, element];
+          setSelectedElements(newSelection);
+          // Update context's selected element (primary selection)
+          onSelectElement(element);
+        }
+      } else {
+        // Single selection (no modifiers)
+        console.log('Setting selected element:', element.id);
+        // Force update both local and parent state
+        const newSelection = [element];
+        setSelectedElements(newSelection);
+        onSelectElement(element);
+        
+        // Add a slight delay to ensure state has been updated
+        setTimeout(() => {
+          console.log('After update - selectedElements:', 
+            selectedElements.map(e => e.id),
+            'selectedElement:', selectedElement?.id);
+        }, 100);
+      }
     }
   };
   
-  // Handle canvas click (deselect)
-  const handleCanvasClick = () => {
+  // Handle canvas click (deselect or add text)
+  const handleCanvasClick = (e: React.MouseEvent) => {
+    // Only process if not coming from selection box end
+    if (isSelecting) return;
+    
     if (currentTool === 'select') {
-      onSelectElement(null);
+      // Clear selection only when clicking directly on canvas (not on elements)
+      if (!e.defaultPrevented) {
+        setSelectedElements([]);
+        onSelectElement(null);
+      }
+    } else if (currentTool === 'text') {
+      // Add text at the clicked position
+      const { x, y } = clientToSVGCoordinates(e.clientX, e.clientY);
+      const newTextElement: Partial<TextElement> = {
+        id: uuidv4(),
+        type: 'text',
+        x,
+        y,
+        width: 120,
+        height: 40,
+        fill: '#000000',
+        stroke: 'transparent',
+        strokeWidth: 1,
+        text: 'Text',
+        fontSize: 18,
+        fontFamily: 'Arial',
+      };
+      
+      onAddElement(newTextElement);
     }
+  };
+
+  // Handle double click on elements to add centered text
+  const handleElementDoubleClick = (e: React.MouseEvent, element: SVGElement) => {
+    e.stopPropagation();
+    
+    // Calculate center of the element
+    const centerX = element.x + (element.width / 2);
+    const centerY = element.y + (element.height / 2);
+    
+    const newTextElement: Partial<TextElement> = {
+      id: uuidv4(),
+      type: 'text',
+      x: centerX - 50, // Offset to center the text (approximate)
+      y: centerY - 9, // Offset to center the text vertically (approximate)
+      width: 100,
+      height: 30,
+      fill: '#000000',
+      stroke: 'transparent',
+      strokeWidth: 1,
+      text: 'Text',
+      fontSize: 18,
+      fontFamily: 'Arial',
+    };
+    
+    onAddElement(newTextElement);
   };
 
   // Convert client coordinates to SVG coordinates
@@ -74,12 +178,43 @@ const Canvas: React.FC<CanvasProps> = ({
     return { x, y };
   };
   
-  // Handle mouse down for drawing
+  // Handle mouse down for drawing or selection
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!isClient) return; // Only handle events on the client side
     
-    // Only start drawing if we've selected a drawing tool (not select)
-    if (currentTool !== 'select' && !isDrawing) {
+    console.log('handleMouseDown triggered, currentTool:', currentTool);
+    
+    if (currentTool === 'select') {
+      // Check if the click is on the SVG background or the grid
+      const isBackground = e.target === svgRef.current || 
+        ((e.target as HTMLElement).tagName === 'rect' && (e.target as HTMLElement).getAttribute('data-grid') === 'true');
+      
+      console.log('Is click on background?', isBackground);
+      
+      if (isBackground) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Clear existing selection if not using modifier keys
+        if (!e.ctrlKey && !e.shiftKey && !e.metaKey) {
+          console.log('Clearing selection');
+          setSelectedElements([]);
+          onSelectElement(null);
+        }
+        
+        const { x, y } = clientToSVGCoordinates(e.clientX, e.clientY);
+        console.log('Starting selection box at', x, y);
+        
+        setIsSelecting(true);
+        setSelectionBox({ x, y, width: 0, height: 0 });
+        
+        // Add global event listeners for selection
+        document.addEventListener('mousemove', handleSelectionMove);
+        document.addEventListener('mouseup', handleSelectionEnd);
+      }
+    } 
+    // Drawing tools handling (rectangle, circle, text, image)
+    else if (!isDrawing) {
       e.preventDefault();
       e.stopPropagation(); // Prevent event bubbling
       
@@ -93,24 +228,103 @@ const Canvas: React.FC<CanvasProps> = ({
         setDrawStartPos({ x, y });
         setIsDrawing(true);
         
-        // Create initial shape
-        const initialShape: Partial<SVGElement> = {
-          type: getCurrentToolType(),
+        // Create a temporary shape based on the current tool
+        const shapeType = getCurrentToolType();
+        
+        // Create the appropriate temporary shape
+        setTempShape({
+          type: shapeType,
           x,
           y,
-          width: 1, // Start with tiny width/height to avoid NaN errors
-          height: 1,
+          width: 0,
+          height: 0,
           fill: '#ffffff',
           stroke: '#000000',
           strokeWidth: 1,
-        };
+        });
         
-        setTempShape(initialShape);
-        
-        // Add mouse event listeners to document to handle cases when mouse moves outside of SVG
+        // Add event listeners for global events (when the pointer moves outside the SVG)
         document.addEventListener('mousemove', handleGlobalMouseMove);
         document.addEventListener('mouseup', handleGlobalMouseUp);
       }
+    }
+  };
+  
+  // Handle selection box moving
+  const handleSelectionMove = (e: MouseEvent) => {
+    if (isSelecting && selectionBox) {
+      e.preventDefault();
+      
+      console.log('Selection box moving');
+      const { x, y } = clientToSVGCoordinates(e.clientX, e.clientY);
+      
+      // Update selection box
+      const width = Math.abs(x - selectionBox.x);
+      const height = Math.abs(y - selectionBox.y);
+      const newX = Math.min(x, selectionBox.x);
+      const newY = Math.min(y, selectionBox.y);
+      
+      setSelectionBox({
+        x: newX,
+        y: newY,
+        width,
+        height
+      });
+    }
+  };
+  
+  // Finalize selection box
+  const handleSelectionEnd = (e: MouseEvent) => {
+    if (isSelecting && selectionBox) {
+      e.preventDefault();
+      
+      console.log('Selection box ended, finding elements in box');
+      
+      // Find elements inside the selection box
+      const selectedItems = elements.filter(element => {
+        // Check if the element intersects with the selection box
+        return (
+          element.x < selectionBox.x + selectionBox.width &&
+          element.x + element.width > selectionBox.x &&
+          element.y < selectionBox.y + selectionBox.height &&
+          element.y + element.height > selectionBox.y
+        );
+      });
+      
+      console.log('Found elements in selection box:', selectedItems.length);
+      
+      if (selectedItems.length > 0) {
+        // If holding shift or ctrl, add to existing selection
+        if (e.shiftKey || e.ctrlKey || e.metaKey) {
+          const newSelection = [...selectedElements];
+          
+          // Add any items not already selected
+          selectedItems.forEach(item => {
+            if (!newSelection.some(el => el.id === item.id)) {
+              newSelection.push(item);
+            }
+          });
+          
+          console.log('Adding to selection, new count:', newSelection.length);
+          setSelectedElements(newSelection);
+          // Update the primary selected element
+          onSelectElement(newSelection[0]);
+        } else {
+          // Replace selection
+          console.log('Replacing selection with', selectedItems.length, 'elements');
+          setSelectedElements(selectedItems);
+          // Update the primary selected element
+          onSelectElement(selectedItems[0]);
+        }
+      }
+      
+      // Clear selection state
+      setIsSelecting(false);
+      setSelectionBox(null);
+      
+      // Remove event listeners
+      document.removeEventListener('mousemove', handleSelectionMove);
+      document.removeEventListener('mouseup', handleSelectionEnd);
     }
   };
   
@@ -216,6 +430,8 @@ const Canvas: React.FC<CanvasProps> = ({
     return () => {
       document.removeEventListener('mousemove', handleGlobalMouseMove);
       document.removeEventListener('mouseup', handleGlobalMouseUp);
+      document.removeEventListener('mousemove', handleSelectionMove);
+      document.removeEventListener('mouseup', handleSelectionEnd);
     };
   }, []);
   
@@ -291,6 +507,136 @@ const Canvas: React.FC<CanvasProps> = ({
     }
   };
   
+  // This effect syncs selectedElement from props with selectedElements local state
+  useEffect(() => {
+    if (selectedElement && !selectedElements.some(el => el.id === selectedElement.id)) {
+      console.log('Syncing selectedElement from props to local state:', selectedElement.id);
+      setSelectedElements([selectedElement, ...selectedElements]);
+    } else if (!selectedElement && selectedElements.length > 0) {
+      console.log('No selected element in props, but have local selections. Keeping local.');
+    }
+  }, [selectedElement]);
+  
+  // Modify the startDrag function to handle multi-element drag
+  const startMultiDrag = (e: React.MouseEvent, element: SVGElement) => {
+    // Only start drag if in select mode
+    if (currentTool !== 'select') return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    console.log('Starting multi-drag for element:', element.id);
+    console.log('Selected elements:', selectedElements.map(el => el.id));
+    
+    // If clicked element is not in selection, clear selection and select just this element
+    if (!selectedElements.some(el => el.id === element.id)) {
+      console.log('Element not in selection, selecting only this element');
+      setSelectedElements([element]);
+      onSelectElement(element);
+      startDrag(e, element);
+      return;
+    }
+    
+    // Store original positions of all selected elements for dragging
+    const elementPositions = selectedElements.map(el => ({
+      id: el.id,
+      startX: el.x,
+      startY: el.y
+    }));
+    
+    // Store drag start info
+    const startX = e.clientX;
+    const startY = e.clientY;
+    
+    // Setup move handler
+    const handleMultiMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      
+      // Update all selected elements
+      selectedElements.forEach(el => {
+        const originalPos = elementPositions.find(pos => pos.id === el.id);
+        if (originalPos) {
+          const updatedElement = {
+            ...el,
+            x: originalPos.startX + dx,
+            y: originalPos.startY + dy
+          };
+          
+          // Update the element visually (but don't commit yet)
+          const elementIndex = elements.findIndex(item => item.id === el.id);
+          if (elementIndex !== -1) {
+            const newElements = [...elements];
+            newElements[elementIndex] = updatedElement;
+            // No need to call setElements - we're just updating visual position
+          }
+        }
+      });
+    };
+    
+    // Setup end handler
+    const handleMultiUp = (upEvent: MouseEvent) => {
+      document.removeEventListener('mousemove', handleMultiMove);
+      document.removeEventListener('mouseup', handleMultiUp);
+      
+      // Finalize the move by updating all elements
+      const dx = upEvent.clientX - startX;
+      const dy = upEvent.clientY - startY;
+      
+      selectedElements.forEach(el => {
+        const originalPos = elementPositions.find(pos => pos.id === el.id);
+        if (originalPos) {
+          const updatedElement = {
+            ...el,
+            x: originalPos.startX + dx,
+            y: originalPos.startY + dy
+          };
+          
+          // Commit change
+          onUpdateElement(updatedElement);
+        }
+      });
+    };
+    
+    // Add event listeners
+    document.addEventListener('mousemove', handleMultiMove);
+    document.addEventListener('mouseup', handleMultiUp);
+  };
+  
+  // Add keyboard event listener for keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle keydown events when canvas is active and we're in design mode
+      if (!isClient || currentTool !== 'select') return;
+      
+      console.log('Key pressed:', e.key);
+      
+      // Handle delete key
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // If we have selected elements and a delete function
+        if (selectedElements.length > 0 && onDeleteElement) {
+          console.log('Deleting selected elements:', selectedElements.map(el => el.id));
+          
+          // Delete all selected elements
+          selectedElements.forEach(element => {
+            onDeleteElement(element.id);
+          });
+          
+          // Clear the selection
+          setSelectedElements([]);
+        }
+      }
+    };
+    
+    // Add event listener
+    window.addEventListener('keydown', handleKeyDown);
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedElements, onDeleteElement, isClient, currentTool]);
+  
   return (
     <div className="relative w-full h-full flex items-center justify-center bg-gray-50 p-4">
       <div className="w-[800px] h-[600px] bg-white rounded-md shadow-md overflow-hidden relative">
@@ -310,11 +656,11 @@ const Canvas: React.FC<CanvasProps> = ({
               <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f0f0f0" strokeWidth="1"/>
             </pattern>
           </defs>
-          <rect width="100%" height="100%" fill="url(#grid)" />
+          <rect width="100%" height="100%" fill="url(#grid)" data-grid="true" />
           
           {/* Render all elements */}
           {elements.map((element) => {
-            const isSelected = selectedElement?.id === element.id;
+            const isSelected = selectedElements.some(sel => sel.id === element.id);
             
             // Render different element types
             switch (element.type) {
@@ -329,24 +675,64 @@ const Canvas: React.FC<CanvasProps> = ({
                     fill={element.fill}
                     stroke={isSelected ? '#3b82f6' : element.stroke}
                     strokeWidth={isSelected ? 2 : element.strokeWidth}
-                    onClick={(e) => handleElementClick(e, element)}
-                    onMouseDown={(e) => currentTool === 'select' ? startDrag(e, element) : undefined}
-                    className={currentTool === 'select' ? "cursor-move" : ""}
+                    strokeDasharray={isSelected ? '5,5' : undefined}
+                    onClick={(e) => {
+                      console.log('Element clicked (onClick):', element.id);
+                      handleElementClick(e, element);
+                    }}
+                    onDoubleClick={(e) => handleElementDoubleClick(e, element)}
+                    onMouseDown={(e) => {
+                      // Call click handler first to ensure selection happens before drag
+                      if (currentTool === 'select') {
+                        if (e.ctrlKey || e.shiftKey || e.metaKey) {
+                          // Just handle selection, no dragging
+                          handleElementClick(e, element);
+                        } else {
+                          // If we're not using modifier keys, start multi-drag
+                          if (!selectedElements.some(el => el.id === element.id)) {
+                            // If element is not selected, select it first
+                            handleElementClick(e, element);
+                          }
+                          startMultiDrag(e, element);
+                        }
+                      }
+                    }}
+                    style={{ cursor: currentTool === 'select' ? 'move' : 'default' }}
                   />
                 );
               case 'circle':
                 return (
                   <circle
                     key={element.id}
-                    cx={element.x + (element.width / 2)}
-                    cy={element.y + (element.height / 2)}
+                    cx={element.x + element.width / 2}
+                    cy={element.y + element.height / 2}
                     r={Math.min(element.width, element.height) / 2}
                     fill={element.fill}
                     stroke={isSelected ? '#3b82f6' : element.stroke}
                     strokeWidth={isSelected ? 2 : element.strokeWidth}
-                    onClick={(e) => handleElementClick(e, element)}
-                    onMouseDown={(e) => currentTool === 'select' ? startDrag(e, element) : undefined}
-                    className={currentTool === 'select' ? "cursor-move" : ""}
+                    strokeDasharray={isSelected ? '5,5' : undefined}
+                    onClick={(e) => {
+                      console.log('Circle clicked (onClick):', element.id);
+                      handleElementClick(e, element);
+                    }}
+                    onDoubleClick={(e) => handleElementDoubleClick(e, element)}
+                    onMouseDown={(e) => {
+                      // Call click handler first to ensure selection happens before drag
+                      if (currentTool === 'select') {
+                        if (e.ctrlKey || e.shiftKey || e.metaKey) {
+                          // Just handle selection, no dragging
+                          handleElementClick(e, element);
+                        } else {
+                          // If we're not using modifier keys, start multi-drag
+                          if (!selectedElements.some(el => el.id === element.id)) {
+                            // If element is not selected, select it first
+                            handleElementClick(e, element);
+                          }
+                          startMultiDrag(e, element);
+                        }
+                      }
+                    }}
+                    style={{ cursor: currentTool === 'select' ? 'move' : 'default' }}
                   />
                 );
               case 'path':
@@ -357,8 +743,27 @@ const Canvas: React.FC<CanvasProps> = ({
                     fill={element.fill}
                     stroke={isSelected ? '#3b82f6' : element.stroke}
                     strokeWidth={isSelected ? 2 : element.strokeWidth}
-                    onClick={(e) => handleElementClick(e, element)}
-                    onMouseDown={(e) => currentTool === 'select' ? startDrag(e, element) : undefined}
+                    strokeDasharray={isSelected ? '5,5' : undefined}
+                    onClick={(e) => {
+                      console.log('Path clicked (onClick):', element.id);
+                      handleElementClick(e, element);
+                    }}
+                    onMouseDown={(e) => {
+                      // Call click handler first to ensure selection happens before drag
+                      if (currentTool === 'select') {
+                        if (e.ctrlKey || e.shiftKey || e.metaKey) {
+                          // Just handle selection, no dragging
+                          handleElementClick(e, element);
+                        } else {
+                          // If we're not using modifier keys, start multi-drag
+                          if (!selectedElements.some(el => el.id === element.id)) {
+                            // If element is not selected, select it first
+                            handleElementClick(e, element);
+                          }
+                          startMultiDrag(e, element);
+                        }
+                      }
+                    }}
                     className={currentTool === 'select' ? "cursor-move" : ""}
                   />
                 );
@@ -371,32 +776,98 @@ const Canvas: React.FC<CanvasProps> = ({
                     fill={element.fill}
                     fontSize={element.fontSize || 16}
                     fontFamily={element.fontFamily || 'Arial'}
-                    onClick={(e) => handleElementClick(e, element)}
-                    onMouseDown={(e) => currentTool === 'select' ? startDrag(e, element) : undefined}
+                    stroke={isSelected ? '#3b82f6' : 'none'}
+                    strokeWidth={isSelected ? 0.5 : 0}
+                    onClick={(e) => {
+                      console.log('Text clicked (onClick):', element.id);
+                      handleElementClick(e, element);
+                    }}
+                    onMouseDown={(e) => {
+                      // Call click handler first to ensure selection happens before drag
+                      if (currentTool === 'select') {
+                        if (e.ctrlKey || e.shiftKey || e.metaKey) {
+                          // Just handle selection, no dragging
+                          handleElementClick(e, element);
+                        } else {
+                          // If we're not using modifier keys, start multi-drag
+                          if (!selectedElements.some(el => el.id === element.id)) {
+                            // If element is not selected, select it first
+                            handleElementClick(e, element);
+                          }
+                          startMultiDrag(e, element);
+                        }
+                      }
+                    }}
                     className={currentTool === 'select' ? "cursor-move" : ""}
                   >
-                    {element.text || 'Text'}
+                    {(element as TextElement).text || 'Text'}
                   </text>
                 );
               case 'image':
                 return (
-                  <image
-                    key={element.id}
-                    x={element.x}
-                    y={element.y}
-                    width={element.width}
-                    height={element.height}
-                    href={element.href}
-                    preserveAspectRatio={element.preserveAspectRatio || 'xMidYMid meet'}
-                    onClick={(e) => handleElementClick(e, element)}
-                    onMouseDown={(e) => currentTool === 'select' ? startDrag(e, element) : undefined}
-                    className={currentTool === 'select' ? "cursor-move" : ""}
-                  />
+                  <g key={element.id}>
+                    <image
+                      x={element.x}
+                      y={element.y}
+                      width={element.width}
+                      height={element.height}
+                      href={element.href}
+                      preserveAspectRatio={element.preserveAspectRatio || 'xMidYMid meet'}
+                      onClick={(e) => {
+                        console.log('Image clicked (onClick):', element.id);
+                        handleElementClick(e, element);
+                      }}
+                      onMouseDown={(e) => {
+                        // Call click handler first to ensure selection happens before drag
+                        if (currentTool === 'select') {
+                          if (e.ctrlKey || e.shiftKey || e.metaKey) {
+                            // Just handle selection, no dragging
+                            handleElementClick(e, element);
+                          } else {
+                            // If we're not using modifier keys, start multi-drag
+                            if (!selectedElements.some(el => el.id === element.id)) {
+                              // If element is not selected, select it first
+                              handleElementClick(e, element);
+                            }
+                            startMultiDrag(e, element);
+                          }
+                        }
+                      }}
+                      className={currentTool === 'select' ? "cursor-move" : ""}
+                    />
+                    {isSelected && (
+                      <rect
+                        x={element.x}
+                        y={element.y}
+                        width={element.width}
+                        height={element.height}
+                        fill="none"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        strokeDasharray="5,5"
+                        pointerEvents="none"
+                      />
+                    )}
+                  </g>
                 );
               default:
                 return null;
             }
           })}
+          
+          {/* Render selection box */}
+          {isSelecting && selectionBox && (
+            <rect
+              x={selectionBox.x}
+              y={selectionBox.y}
+              width={selectionBox.width}
+              height={selectionBox.height}
+              fill="rgba(59, 130, 246, 0.1)"
+              stroke="#3b82f6"
+              strokeWidth={1}
+              strokeDasharray="5,5"
+            />
+          )}
           
           {/* Render temporary shape while drawing */}
           {isClient && renderTempShape()}
@@ -410,6 +881,13 @@ const Canvas: React.FC<CanvasProps> = ({
             onSelectFill={handleFillColorChange}
             onSelectStroke={handleStrokeColorChange}
           />
+        )}
+        
+        {/* Selection info */}
+        {selectedElements.length > 1 && (
+          <div className="absolute top-2 left-2 bg-white p-2 rounded shadow-md text-xs">
+            {selectedElements.length} items selected
+          </div>
         )}
       </div>
     </div>

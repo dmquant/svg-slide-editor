@@ -211,6 +211,7 @@ function Editor() {
               onSelectElement={setSelectedElement}
               onUpdateElement={updateElement}
               onAddElement={addElement}
+              onDeleteElement={deleteElement}
               currentTool={currentTool}
             />
           ) : (

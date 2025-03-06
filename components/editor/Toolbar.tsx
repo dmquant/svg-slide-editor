@@ -56,13 +56,12 @@ const Toolbar: React.FC<ToolbarProps> = ({
   
   // Handle tool selection
   const handleToolSelect = (toolId: Tool) => {
-    // First set the tool regardless
+    // Just set the tool - no automatic element creation
     onChangeTool(toolId);
     
-    // For text and image tools, directly add an element since they are not drawn
-    if (toolId === 'text' || toolId === 'image') {
-      const elementType = toolId === 'text' ? 'text' : 'image';
-      const newElement = createDefaultElement(elementType as SVGElement['type']);
+    // Only for image tools, directly add an element
+    if (toolId === 'image') {
+      const newElement = createDefaultElement('image');
       
       // Set a small delay to avoid any race conditions
       setTimeout(() => {

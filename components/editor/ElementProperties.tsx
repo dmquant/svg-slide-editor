@@ -4,6 +4,7 @@ import React from 'react';
 import { SVGElement } from '@/types/editor';
 import ColorPicker from '../ui/ColorPicker';
 import Dropdown from '../ui/Dropdown';
+import EnhancedColorPicker from '../ui/EnhancedColorPicker';
 
 interface ElementPropertiesProps {
   selectedElement: SVGElement | null;
@@ -79,16 +80,16 @@ const ElementProperties: React.FC<ElementPropertiesProps> = ({
         
         <div className="space-y-3">
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Fill</label>
-            <ColorPicker
+            <EnhancedColorPicker
+              label="Fill"
               color={selectedElement.fill}
               onChange={(color) => handleChange('fill', color)}
             />
           </div>
           
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Stroke</label>
-            <ColorPicker
+            <EnhancedColorPicker
+              label="Stroke"
               color={selectedElement.stroke}
               onChange={(color) => handleChange('stroke', color)}
             />
