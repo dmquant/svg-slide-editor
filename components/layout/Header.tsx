@@ -4,15 +4,19 @@ import Button from '../ui/Button';
 interface HeaderProps {
   onSave: () => void;
   onExport: () => void;
-  onImport: () => void;
   onNew: () => void;
+  onToggleCode: () => void;
+  isCodeVisible: boolean;
+  onImport: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({
   onSave,
   onExport,
-  onImport,
   onNew,
+  onToggleCode,
+  isCodeVisible,
+  onImport,
 }) => {
   return (
     <header className="bg-white border-b px-4 py-2 flex items-center justify-between">
@@ -34,15 +38,21 @@ const Header: React.FC<HeaderProps> = ({
           </button>
           <button 
             className="text-sm text-gray-700 hover:text-gray-900"
+            onClick={onExport}
+          >
+            Export
+          </button>
+          <button 
+            className="text-sm text-gray-700 hover:text-gray-900"
             onClick={onImport}
           >
             Import
           </button>
           <button 
-            className="text-sm text-gray-700 hover:text-gray-900"
-            onClick={onExport}
+            className={`text-sm ${isCodeVisible ? 'text-blue-600' : 'text-gray-700 hover:text-gray-900'}`}
+            onClick={onToggleCode}
           >
-            Export
+            {isCodeVisible ? 'Hide Code' : 'Show Code'}
           </button>
         </nav>
       </div>

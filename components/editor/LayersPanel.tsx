@@ -43,7 +43,7 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
   };
   
   // Helper function to get element type icon
-  const getElementIcon = (type: string) => {
+  const getElementIcon = (type: string, elementId: string) => {
     switch (type) {
       case 'rect':
         return (
@@ -107,12 +107,12 @@ const LayersPanel: React.FC<LayersPanelProps> = ({
                 onClick={() => onSelectElement(element)}
               >
                 <div className="mr-2 text-gray-600">
-                  {getElementIcon(element.type)}
+                  {getElementIcon(element.type, element.id)}
                 </div>
                 
                 <div className="flex-1 truncate">
                   <div className="text-sm truncate">
-                    {element.type === 'text' ? (element.text || 'Text') : `${element.type}`}
+                    {element.type === 'text' ? ((element.text || 'Text') as React.ReactNode) : (element.type as React.ReactNode)}
                   </div>
                 </div>
                 

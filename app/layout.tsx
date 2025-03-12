@@ -1,5 +1,6 @@
 import './globals.css';
 import type { Metadata } from 'next';
+import Navigation from '@/components/layout/Navigation';
 
 export const metadata: Metadata = {
   title: 'SVG Slide Editor',
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="font-sans">{children}</body>
+      <body className="font-sans">
+        <Navigation />
+        {children}
+      </body>
     </html>
   );
 }

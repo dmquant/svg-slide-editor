@@ -3,7 +3,7 @@ import { SVGElement } from '@/types/editor';
 /**
  * Converts SVG elements to a downloadable SVG file
  */
-export function generateSvgFile(elements: SVGElement[], width = 800, height = 600, background = 'white'): string {
+export function generateSvgFile(elements: SVGElement[], width = 1200, height = 800, background = 'white'): string {
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
   
   // Add background
@@ -13,6 +13,13 @@ export function generateSvgFile(elements: SVGElement[], width = 800, height = 60
   
   // Add elements
   elements.forEach(element => {
+    // If originalSvg is available, use it directly
+    if (element.originalSvg) {
+      svg += element.originalSvg;
+      return;
+    }
+    
+    // Otherwise use our internal representation
     switch (element.type) {
       case 'rect':
         svg += `<rect x="${element.x}" y="${element.y}" width="${element.width}" height="${element.height}" fill="${element.fill}" stroke="${element.stroke}" stroke-width="${element.strokeWidth}" />`;

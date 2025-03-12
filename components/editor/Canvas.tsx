@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useElementDrag } from '@/hooks/useElementDrag';
 import { useSvgGenerator } from '@/hooks/useSvgGenerator';
 import { SVGElement, TextElement } from '@/types/editor';
@@ -16,6 +16,7 @@ interface CanvasProps {
   onAddElement: (element: Partial<SVGElement>) => void;
   onDeleteElement?: (elementId: string) => void;
   currentTool: Tool;
+  isPreviewMode?: boolean;
 }
 
 const Canvas: React.FC<CanvasProps> = ({
@@ -26,9 +27,10 @@ const Canvas: React.FC<CanvasProps> = ({
   onAddElement,
   onDeleteElement,
   currentTool,
+  isPreviewMode = false,
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [viewBox, setViewBox] = useState('0 0 800 600');
+  const [viewBox, setViewBox] = useState('0 0 1200 800');
   const [isClient, setIsClient] = useState(false);
   const [drawStartPos, setDrawStartPos] = useState<{ x: number; y: number } | null>(null);
   const [tempShape, setTempShape] = useState<Partial<SVGElement> | null>(null);
@@ -178,9 +180,87 @@ const Canvas: React.FC<CanvasProps> = ({
     return { x, y };
   };
   
+  // Calculate accurate text dimensions
+  const getTextDimensions = (text: string, fontSize: number, fontWeight: string): { width: number, height: number } => {
+    if (!text || !svgRef.current || !isClient) {
+      // Fallback estimation if we can't measure
+      return {
+        width: text ? text.length * (fontSize * 0.6) : 20,
+        height: fontSize * 1.2
+      };
+    }
+    
+    try {
+      // Create a temporary SVG text element to measure
+      const svgNS = "http://www.w3.org/2000/svg";
+      const temp = document.createElementNS(svgNS, "text");
+      temp.setAttribute('font-size', `${fontSize}px`);
+      temp.setAttribute('font-family', 'Noto Sans SC, sans-serif');
+      temp.setAttribute('font-weight', fontWeight || 'normal');
+      temp.textContent = text;
+      
+      // Append to the SVG temporarily
+      svgRef.current.appendChild(temp);
+      
+      // Get dimensions - this needs to be wrapped in try/catch
+      // because getBBox can fail if the element is not visible
+      let width = 0;
+      let height = 0;
+      
+      try {
+        const bbox = temp.getBBox();
+        width = bbox.width;
+        height = bbox.height;
+      } catch (e) {
+        console.warn('Failed to get text dimensions using getBBox, using fallback', e);
+        width = text.length * (fontSize * 0.6);
+        height = fontSize * 1.2;
+      }
+      
+      // Remove temporary element
+      svgRef.current.removeChild(temp);
+      
+      return { 
+        width: Math.max(width, 20), // Ensure minimum width
+        height: Math.max(height, fontSize * 1.2) // Ensure minimum height
+      };
+    } catch (e) {
+      console.warn('Error measuring text dimensions:', e);
+      return {
+        width: text.length * (fontSize * 0.6),
+        height: fontSize * 1.2
+      };
+    }
+  };
+
+  // Update text dimensions when rendering - memoized to prevent re-renders
+  const updateTextDimensions = useCallback((element: any) => {
+    if (element.type === 'text' && element.text && svgRef.current) {
+      const fontSize = element.fontSize || 16;
+      const fontWeight = element.fontWeight || 'normal';
+      
+      // Get accurate dimensions
+      const { width, height } = getTextDimensions(element.text, fontSize, fontWeight);
+      
+      // Update element if dimensions are significantly different
+      if (Math.abs(element.width - width) > 5 || Math.abs(element.height - height) > 5) {
+        onUpdateElement({
+          ...element,
+          width: width,
+          height: height
+        });
+      }
+      
+      // Return actual dimensions for rendering selection box
+      return { width, height };
+    }
+    
+    return { width: element.width, height: element.height };
+  }, [onUpdateElement]);
+  
   // Handle mouse down for drawing or selection
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (!isClient) return; // Only handle events on the client side
+    if (!isClient || isPreviewMode) return; // Skip in preview mode or if not client
     
     console.log('handleMouseDown triggered, currentTool:', currentTool);
     
@@ -451,44 +531,6 @@ const Canvas: React.FC<CanvasProps> = ({
     }
   };
   
-  // Render the temporary shape while drawing
-  const renderTempShape = () => {
-    if (!tempShape || !isDrawing) return null;
-    
-    switch (tempShape.type) {
-      case 'rect':
-        return (
-          <rect
-            x={tempShape.x}
-            y={tempShape.y}
-            width={tempShape.width}
-            height={tempShape.height}
-            fill={tempShape.fill || '#ffffff'}
-            stroke={tempShape.stroke || '#000000'}
-            strokeWidth={tempShape.strokeWidth || 1}
-            strokeDasharray="4 4"
-          />
-        );
-      case 'circle':
-        const cx = (tempShape.x || 0) + (tempShape.width || 0) / 2;
-        const cy = (tempShape.y || 0) + (tempShape.height || 0) / 2;
-        const r = Math.min(tempShape.width || 0, tempShape.height || 0) / 2;
-        return (
-          <circle
-            cx={cx}
-            cy={cy}
-            r={r}
-            fill={tempShape.fill || '#ffffff'}
-            stroke={tempShape.stroke || '#000000'}
-            strokeWidth={tempShape.strokeWidth || 1}
-            strokeDasharray="4 4"
-          />
-        );
-      default:
-        return null;
-    }
-  };
-  
   const handleFillColorChange = (color: string) => {
     if (selectedElement) {
       onUpdateElement({
@@ -637,186 +679,200 @@ const Canvas: React.FC<CanvasProps> = ({
     };
   }, [selectedElements, onDeleteElement, isClient, currentTool]);
   
+  // Load CSS styles from the imported SVG
+  const globalStyles = `
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap');
+    
+    text {
+      font-family: 'Noto Sans SC', sans-serif;
+      fill: #333333;
+    }
+    .title {
+      font-size: 48px;
+      font-weight: 700;
+      fill: #007856;
+    }
+    .subtitle {
+      font-size: 32px;
+      font-weight: 400;
+      fill: #444444;
+    }
+    .heading {
+      font-size: 40px;
+      font-weight: 700;
+      fill: #007856;
+    }
+    .subheading {
+      font-size: 30px;
+      font-weight: 700;
+      fill: #333333;
+    }
+    .bullet {
+      font-size: 24px;
+      fill: #333333;
+    }
+    .subbullet {
+      font-size: 20px;
+      fill: #555555;
+    }
+    .bullet-point {
+      fill: #007856;
+    }
+    .footer {
+      font-size: 16px;
+      fill: #666666;
+    }
+    .slide-bg {
+      fill: #ffffff;
+    }
+    .header-line {
+      stroke: #007856;
+      stroke-width: 4;
+    }
+    .footer-line {
+      stroke: #cccccc;
+      stroke-width: 2;
+    }
+    .highlight-box {
+      fill: #f0f9f6;
+      stroke: #007856;
+      stroke-width: 2;
+      rx: 8;
+      ry: 8;
+    }
+    .nvidia-green {
+      fill: #76B900;
+    }
+    .page-number {
+      font-size: 24px;
+      font-weight: 700;
+      fill: #007856;
+    }
+  `;
+
+  // Effect to update text dimensions when an element is selected
+  useEffect(() => {
+    if (selectedElement && selectedElement.type === 'text') {
+      updateTextDimensions(selectedElement);
+    }
+  }, [selectedElement, updateTextDimensions]);
+
   return (
-    <div className="relative w-full h-full flex items-center justify-center bg-gray-50 p-4">
-      <div className="w-[800px] h-[600px] bg-white rounded-md shadow-md overflow-hidden relative">
+    <div className="h-full w-full flex flex-col">
+      <div className="relative flex-1 overflow-auto">
         <svg
           ref={svgRef}
-          className="w-full h-full"
+          width="100%"
+          height="100%"
           viewBox={viewBox}
-          onClick={handleCanvasClick}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          className={`bg-white ${isPreviewMode ? '' : 'border border-gray-200'}`}
+          onMouseDown={isPreviewMode ? undefined : handleMouseDown}
+          onMouseMove={isPreviewMode ? undefined : handleMouseMove}
+          onMouseUp={isPreviewMode ? undefined : handleMouseUp}
+          onMouseLeave={isPreviewMode ? undefined : handleMouseUp}
+          onClick={isPreviewMode ? undefined : handleCanvasClick}
         >
-          {/* Grid background */}
+          {/* Define global styles */}
           <defs>
-            <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f0f0f0" strokeWidth="1"/>
-            </pattern>
+            {/* Grid pattern */}
+            {!isPreviewMode && (
+              <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse" key="grid-pattern">
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f0f0f0" strokeWidth="1" key="grid-path"/>
+              </pattern>
+            )}
+            
+            {/* Global styles */}
+            <style type="text/css">
+              {globalStyles}
+            </style>
+            
+            {/* NVIDIA icon symbol */}
+            <symbol id="nvidia-icon" viewBox="0 0 100 100">
+              <path className="nvidia-green" d="M95,50c0,24.85-20.15,45-45,45S5,74.85,5,50S25.15,5,50,5S95,25.15,95,50z"/>
+              <path fill="#ffffff" d="M84,55.5c0,0-9.5,17-34,17c-22,0-33.5-17-33.5-17s11.5-17,33.5-17C74.5,38.5,84,55.5,84,55.5z"/>
+              <path className="nvidia-green" d="M76,55.5c0,0-7.5,10.5-26,10.5c-16.5,0-25.5-10.5-25.5-10.5s9-10.5,25.5-10.5C68.5,45,76,55.5,76,55.5z"/>
+            </symbol>
           </defs>
-          <rect width="100%" height="100%" fill="url(#grid)" data-grid="true" />
+          {!isPreviewMode && <rect width="100%" height="100%" fill="url(#grid)" data-grid="true" key="grid-bg" />}
           
           {/* Render all elements */}
           {elements.map((element) => {
-            const isSelected = selectedElements.some(sel => sel.id === element.id);
+            const isSelected = !isPreviewMode && selectedElements.some(sel => sel.id === element.id);
+            
+            // If the element has originalSvg, render it directly using a foreignObject
+            if (element.originalSvg) {
+              // Create a wrapper for the original SVG to allow selection and interaction
+              return (
+                <g key={`element-${element.id}`}>
+                  <foreignObject
+                    x={element.x}
+                    y={element.y}
+                    width={element.width}
+                    height={element.height}
+                    dangerouslySetInnerHTML={{ 
+                      __html: element.originalSvg 
+                    }}
+                    onClick={(e) => {
+                      console.log('Element clicked (onClick):', element.id);
+                      handleElementClick(e, element);
+                    }}
+                    onMouseDown={(e) => {
+                      // Call click handler first to ensure selection happens before drag
+                      if (currentTool === 'select') {
+                        if (e.ctrlKey || e.shiftKey || e.metaKey) {
+                          // Just handle selection, no dragging
+                          handleElementClick(e, element);
+                        } else {
+                          // If we're not using modifier keys, start multi-drag
+                          if (!selectedElements.some(el => el.id === element.id)) {
+                            // If element is not selected, select it first
+                            handleElementClick(e, element);
+                          }
+                          startMultiDrag(e, element);
+                        }
+                      }
+                    }}
+                    style={{ cursor: currentTool === 'select' ? 'move' : 'default' }}
+                  />
+                  {isSelected && (
+                    <rect
+                      x={element.x}
+                      y={element.y}
+                      width={element.width}
+                      height={element.height}
+                      fill="none"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                      strokeDasharray="5,5"
+                      pointerEvents="none"
+                    />
+                  )}
+                </g>
+              );
+            }
             
             // Render different element types
             switch (element.type) {
               case 'rect':
                 return (
-                  <rect
-                    key={element.id}
-                    x={element.x}
-                    y={element.y}
-                    width={element.width}
-                    height={element.height}
-                    fill={element.fill}
-                    stroke={isSelected ? '#3b82f6' : element.stroke}
-                    strokeWidth={isSelected ? 2 : element.strokeWidth}
-                    strokeDasharray={isSelected ? '5,5' : undefined}
-                    onClick={(e) => {
-                      console.log('Element clicked (onClick):', element.id);
-                      handleElementClick(e, element);
-                    }}
-                    onDoubleClick={(e) => handleElementDoubleClick(e, element)}
-                    onMouseDown={(e) => {
-                      // Call click handler first to ensure selection happens before drag
-                      if (currentTool === 'select') {
-                        if (e.ctrlKey || e.shiftKey || e.metaKey) {
-                          // Just handle selection, no dragging
-                          handleElementClick(e, element);
-                        } else {
-                          // If we're not using modifier keys, start multi-drag
-                          if (!selectedElements.some(el => el.id === element.id)) {
-                            // If element is not selected, select it first
-                            handleElementClick(e, element);
-                          }
-                          startMultiDrag(e, element);
-                        }
-                      }
-                    }}
-                    style={{ cursor: currentTool === 'select' ? 'move' : 'default' }}
-                  />
-                );
-              case 'circle':
-                return (
-                  <circle
-                    key={element.id}
-                    cx={element.x + element.width / 2}
-                    cy={element.y + element.height / 2}
-                    r={Math.min(element.width, element.height) / 2}
-                    fill={element.fill}
-                    stroke={isSelected ? '#3b82f6' : element.stroke}
-                    strokeWidth={isSelected ? 2 : element.strokeWidth}
-                    strokeDasharray={isSelected ? '5,5' : undefined}
-                    onClick={(e) => {
-                      console.log('Circle clicked (onClick):', element.id);
-                      handleElementClick(e, element);
-                    }}
-                    onDoubleClick={(e) => handleElementDoubleClick(e, element)}
-                    onMouseDown={(e) => {
-                      // Call click handler first to ensure selection happens before drag
-                      if (currentTool === 'select') {
-                        if (e.ctrlKey || e.shiftKey || e.metaKey) {
-                          // Just handle selection, no dragging
-                          handleElementClick(e, element);
-                        } else {
-                          // If we're not using modifier keys, start multi-drag
-                          if (!selectedElements.some(el => el.id === element.id)) {
-                            // If element is not selected, select it first
-                            handleElementClick(e, element);
-                          }
-                          startMultiDrag(e, element);
-                        }
-                      }
-                    }}
-                    style={{ cursor: currentTool === 'select' ? 'move' : 'default' }}
-                  />
-                );
-              case 'path':
-                return (
-                  <path
-                    key={element.id}
-                    d={element.d || ''}
-                    fill={element.fill}
-                    stroke={isSelected ? '#3b82f6' : element.stroke}
-                    strokeWidth={isSelected ? 2 : element.strokeWidth}
-                    strokeDasharray={isSelected ? '5,5' : undefined}
-                    onClick={(e) => {
-                      console.log('Path clicked (onClick):', element.id);
-                      handleElementClick(e, element);
-                    }}
-                    onMouseDown={(e) => {
-                      // Call click handler first to ensure selection happens before drag
-                      if (currentTool === 'select') {
-                        if (e.ctrlKey || e.shiftKey || e.metaKey) {
-                          // Just handle selection, no dragging
-                          handleElementClick(e, element);
-                        } else {
-                          // If we're not using modifier keys, start multi-drag
-                          if (!selectedElements.some(el => el.id === element.id)) {
-                            // If element is not selected, select it first
-                            handleElementClick(e, element);
-                          }
-                          startMultiDrag(e, element);
-                        }
-                      }
-                    }}
-                    className={currentTool === 'select' ? "cursor-move" : ""}
-                  />
-                );
-              case 'text':
-                return (
-                  <text
-                    key={element.id}
-                    x={element.x}
-                    y={element.y}
-                    fill={element.fill}
-                    fontSize={element.fontSize || 16}
-                    fontFamily={element.fontFamily || 'Arial'}
-                    stroke={isSelected ? '#3b82f6' : 'none'}
-                    strokeWidth={isSelected ? 0.5 : 0}
-                    onClick={(e) => {
-                      console.log('Text clicked (onClick):', element.id);
-                      handleElementClick(e, element);
-                    }}
-                    onMouseDown={(e) => {
-                      // Call click handler first to ensure selection happens before drag
-                      if (currentTool === 'select') {
-                        if (e.ctrlKey || e.shiftKey || e.metaKey) {
-                          // Just handle selection, no dragging
-                          handleElementClick(e, element);
-                        } else {
-                          // If we're not using modifier keys, start multi-drag
-                          if (!selectedElements.some(el => el.id === element.id)) {
-                            // If element is not selected, select it first
-                            handleElementClick(e, element);
-                          }
-                          startMultiDrag(e, element);
-                        }
-                      }
-                    }}
-                    className={currentTool === 'select' ? "cursor-move" : ""}
-                  >
-                    {(element as TextElement).text || 'Text'}
-                  </text>
-                );
-              case 'image':
-                return (
-                  <g key={element.id}>
-                    <image
+                  <g key={`element-${element.id}`}>
+                    <rect
                       x={element.x}
                       y={element.y}
                       width={element.width}
                       height={element.height}
-                      href={element.href}
-                      preserveAspectRatio={element.preserveAspectRatio || 'xMidYMid meet'}
+                      fill={element.fill}
+                      stroke={isSelected ? '#3b82f6' : element.stroke}
+                      strokeWidth={isSelected ? 2 : element.strokeWidth}
+                      strokeDasharray={isSelected ? '5,5' : undefined}
+                      rx={(element as any).rx}
+                      ry={(element as any).ry}
+                      className={element.className}
                       onClick={(e) => {
-                        console.log('Image clicked (onClick):', element.id);
+                        console.log('Element clicked (onClick):', element.id);
                         handleElementClick(e, element);
                       }}
+                      onDoubleClick={(e) => handleElementDoubleClick(e, element)}
                       onMouseDown={(e) => {
                         // Call click handler first to ensure selection happens before drag
                         if (currentTool === 'select') {
@@ -833,7 +889,248 @@ const Canvas: React.FC<CanvasProps> = ({
                           }
                         }
                       }}
-                      className={currentTool === 'select' ? "cursor-move" : ""}
+                      style={{ cursor: currentTool === 'select' ? 'move' : 'default' }}
+                    />
+                    {isSelected && (
+                      <rect
+                        x={element.x - 2}
+                        y={element.y - 2}
+                        width={element.width + 4}
+                        height={element.height + 4}
+                        fill="none"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        strokeDasharray="5,5"
+                        pointerEvents="none"
+                      />
+                    )}
+                  </g>
+                );
+              case 'circle':
+                const cx = element.x + element.width / 2;
+                const cy = element.y + element.height / 2;
+                const r = Math.min(element.width, element.height) / 2;
+                
+                return (
+                  <g key={`element-${element.id}`}>
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={r}
+                      fill={element.fill}
+                      stroke={isSelected ? '#3b82f6' : element.stroke}
+                      strokeWidth={isSelected ? 2 : element.strokeWidth}
+                      strokeDasharray={isSelected ? '5,5' : undefined}
+                      className={element.className}
+                      onClick={(e) => handleElementClick(e, element)}
+                      onDoubleClick={(e) => handleElementDoubleClick(e, element)}
+                      onMouseDown={(e) => {
+                        if (currentTool === 'select') {
+                          if (e.ctrlKey || e.shiftKey || e.metaKey) {
+                            handleElementClick(e, element);
+                          } else {
+                            if (!selectedElements.some(el => el.id === element.id)) {
+                              handleElementClick(e, element);
+                            }
+                            startMultiDrag(e, element);
+                          }
+                        }
+                      }}
+                      style={{ cursor: currentTool === 'select' ? 'move' : 'default' }}
+                    />
+                    {isSelected && (
+                      <rect
+                        x={element.x}
+                        y={element.y}
+                        width={element.width}
+                        height={element.height}
+                        fill="none"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        strokeDasharray="5,5"
+                        pointerEvents="none"
+                      />
+                    )}
+                  </g>
+                );
+              case 'line':
+                const lineElement = element as any;
+                return (
+                  <g key={`element-${element.id}`}>
+                    <line
+                      x1={lineElement.x1}
+                      y1={lineElement.y1}
+                      x2={lineElement.x2}
+                      y2={lineElement.y2}
+                      stroke={isSelected ? '#3b82f6' : element.stroke}
+                      strokeWidth={isSelected ? 2 : element.strokeWidth}
+                      strokeDasharray={isSelected ? '5,5' : undefined}
+                      className={element.className || lineElement.lineClass}
+                      onClick={(e) => handleElementClick(e, element)}
+                      onDoubleClick={(e) => handleElementDoubleClick(e, element)}
+                      onMouseDown={(e) => {
+                        if (currentTool === 'select') {
+                          if (e.ctrlKey || e.shiftKey || e.metaKey) {
+                            handleElementClick(e, element);
+                          } else {
+                            if (!selectedElements.some(el => el.id === element.id)) {
+                              handleElementClick(e, element);
+                            }
+                            startMultiDrag(e, element);
+                          }
+                        }
+                      }}
+                      style={{ cursor: currentTool === 'select' ? 'move' : 'default' }}
+                    />
+                    {isSelected && (
+                      <>
+                        <rect
+                          x={Math.min(lineElement.x1, lineElement.x2) - 5}
+                          y={Math.min(lineElement.y1, lineElement.y2) - 5}
+                          width={Math.abs(lineElement.x2 - lineElement.x1) + 10}
+                          height={Math.abs(lineElement.y2 - lineElement.y1) + 10}
+                          fill="none"
+                          stroke="#3b82f6"
+                          strokeWidth={2}
+                          strokeDasharray="5,5"
+                          pointerEvents="none"
+                        />
+                        {/* Control points for line endpoints */}
+                        <circle cx={lineElement.x1} cy={lineElement.y1} r={5} fill="#3b82f6" />
+                        <circle cx={lineElement.x2} cy={lineElement.y2} r={5} fill="#3b82f6" />
+                      </>
+                    )}
+                  </g>
+                );
+              case 'text':
+                const textElement = element as any;
+                const classStyle = textElement.textClass || '';
+                
+                // Get accurate text dimensions 
+                const { width: textWidth, height: textHeight } = updateTextDimensions(textElement);
+                
+                return (
+                  <g key={`element-${element.id}`}>
+                    <text
+                      x={element.x}
+                      y={element.y + (textElement.fontSize || 16)}
+                      fill={element.fill}
+                      fontSize={textElement.fontSize || 16}
+                      fontFamily={textElement.fontFamily || 'Noto Sans SC, sans-serif'}
+                      fontWeight={textElement.fontWeight || 'normal'}
+                      textAnchor={textElement.textAnchor || 'start'}
+                      className={classStyle || element.className}
+                      onClick={(e) => handleElementClick(e, element)}
+                      onDoubleClick={(e) => handleElementDoubleClick(e, element)}
+                      onMouseDown={(e) => {
+                        if (currentTool === 'select') {
+                          if (e.ctrlKey || e.shiftKey || e.metaKey) {
+                            handleElementClick(e, element);
+                          } else {
+                            if (!selectedElements.some(el => el.id === element.id)) {
+                              handleElementClick(e, element);
+                            }
+                            startMultiDrag(e, element);
+                          }
+                        }
+                      }}
+                      style={{ cursor: currentTool === 'select' ? 'move' : 'default' }}
+                    >
+                      {(textElement.text || 'Text').split('\n').map((line: string, i: number) => (
+                        <tspan key={i} x={element.x} dy={i === 0 ? 0 : textElement.fontSize || 16}>
+                          {line}
+                        </tspan>
+                      ))}
+                    </text>
+                    {isSelected && (
+                      <rect
+                        x={element.x - 2}
+                        y={element.y - 2}
+                        width={textWidth + 4}
+                        height={textHeight + 4}
+                        fill="none"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        strokeDasharray="5,5"
+                        pointerEvents="none"
+                      />
+                    )}
+                  </g>
+                );
+              case 'symbol':
+                const symbolElement = element as any;
+                // For symbols, we need to render the content within a symbol tag
+                return (
+                  <g key={`element-${element.id}`}>
+                    <symbol
+                      id={element.id}
+                      viewBox={symbolElement.viewBox || "0 0 100 100"}
+                      preserveAspectRatio="xMidYMid meet"
+                      dangerouslySetInnerHTML={{ __html: symbolElement.content }}
+                    />
+                    {/* Preview of the symbol */}
+                    <use
+                      href={`#${element.id}`}
+                      x={element.x}
+                      y={element.y}
+                      width={element.width}
+                      height={element.height}
+                      onClick={(e) => handleElementClick(e, element)}
+                      onDoubleClick={(e) => handleElementDoubleClick(e, element)}
+                      onMouseDown={(e) => {
+                        if (currentTool === 'select') {
+                          if (e.ctrlKey || e.shiftKey || e.metaKey) {
+                            handleElementClick(e, element);
+                          } else {
+                            if (!selectedElements.some(el => el.id === element.id)) {
+                              handleElementClick(e, element);
+                            }
+                            startMultiDrag(e, element);
+                          }
+                        }
+                      }}
+                      style={{ cursor: currentTool === 'select' ? 'move' : 'default' }}
+                    />
+                    {isSelected && (
+                      <rect
+                        x={element.x}
+                        y={element.y}
+                        width={element.width}
+                        height={element.height}
+                        fill="none"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        strokeDasharray="5,5"
+                        pointerEvents="none"
+                      />
+                    )}
+                  </g>
+                );
+              case 'use':
+                const useElement = element as any;
+                return (
+                  <g key={`element-${element.id}`}>
+                    <use
+                      href={useElement.href}
+                      x={element.x}
+                      y={element.y}
+                      width={element.width}
+                      height={element.height}
+                      onClick={(e) => handleElementClick(e, element)}
+                      onDoubleClick={(e) => handleElementDoubleClick(e, element)}
+                      onMouseDown={(e) => {
+                        if (currentTool === 'select') {
+                          if (e.ctrlKey || e.shiftKey || e.metaKey) {
+                            handleElementClick(e, element);
+                          } else {
+                            if (!selectedElements.some(el => el.id === element.id)) {
+                              handleElementClick(e, element);
+                            }
+                            startMultiDrag(e, element);
+                          }
+                        }
+                      }}
+                      style={{ cursor: currentTool === 'select' ? 'move' : 'default' }}
                     />
                     {isSelected && (
                       <rect
@@ -858,6 +1155,7 @@ const Canvas: React.FC<CanvasProps> = ({
           {/* Render selection box */}
           {isSelecting && selectionBox && (
             <rect
+              key="selection-box"
               x={selectionBox.x}
               y={selectionBox.y}
               width={selectionBox.width}
@@ -870,11 +1168,36 @@ const Canvas: React.FC<CanvasProps> = ({
           )}
           
           {/* Render temporary shape while drawing */}
-          {isClient && renderTempShape()}
+          {isClient && isDrawing && tempShape && (
+            tempShape.type === 'rect' ? (
+              <rect
+                key="temp-rect"
+                x={tempShape.x}
+                y={tempShape.y}
+                width={tempShape.width}
+                height={tempShape.height}
+                fill={tempShape.fill || '#ffffff'}
+                stroke={tempShape.stroke || '#000000'}
+                strokeWidth={tempShape.strokeWidth || 1}
+                strokeDasharray="4 4"
+              />
+            ) : tempShape.type === 'circle' ? (
+              <circle
+                key="temp-circle"
+                cx={(tempShape.x || 0) + (tempShape.width || 0) / 2}
+                cy={(tempShape.y || 0) + (tempShape.height || 0) / 2}
+                r={Math.min(tempShape.width || 0, tempShape.height || 0) / 2}
+                fill={tempShape.fill || '#ffffff'}
+                stroke={tempShape.stroke || '#000000'}
+                strokeWidth={tempShape.strokeWidth || 1}
+                strokeDasharray="4 4"
+              />
+            ) : null
+          )}
         </svg>
         
         {/* Add the QuickColorPalette component */}
-        {selectedElement && (
+        {!isPreviewMode && selectedElement && (
           <QuickColorPalette
             currentFill={selectedElement.fill}
             currentStroke={selectedElement.stroke}
@@ -884,7 +1207,7 @@ const Canvas: React.FC<CanvasProps> = ({
         )}
         
         {/* Selection info */}
-        {selectedElements.length > 1 && (
+        {!isPreviewMode && selectedElements.length > 1 && (
           <div className="absolute top-2 left-2 bg-white p-2 rounded shadow-md text-xs">
             {selectedElements.length} items selected
           </div>

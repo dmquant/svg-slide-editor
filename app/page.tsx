@@ -9,6 +9,7 @@ import Toolbar from '@/components/editor/Toolbar';
 import CodeEditor from '@/components/editor/CodeEditor';
 import { useEditor } from '@/context/EditorContext';
 import { Tool } from '@/components/editor/Toolbar';
+import ExportDialog from '@/components/ui/ExportDialog';
 
 // Main Editor Component
 function Editor() {
@@ -34,6 +35,8 @@ function Editor() {
   const [currentTool, setCurrentTool] = useState<Tool>('select');
   const [viewMode, setViewMode] = useState<'design' | 'code' | 'preview'>('design');
   const [isCodeVisible, setIsCodeVisible] = useState(true);
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
 
   // Get current slide elements
   const currentSlide = slides[currentSlideIndex] || { id: '', elements: [] };
@@ -110,88 +113,55 @@ function Editor() {
     input.click();
   };
 
+  const togglePreviewMode = () => {
+    setIsPreviewMode(!isPreviewMode);
+    // If entering preview mode, ensure we're in select tool to avoid accidental drawing
+    if (!isPreviewMode) {
+      setCurrentTool('select');
+    }
+  };
+
   const toggleCodeVisibility = () => {
     setIsCodeVisible(!isCodeVisible);
+    // Exit preview mode when showing code
+    if (isPreviewMode && !isCodeVisible) {
+      setIsPreviewMode(false);
+    }
+  };
+
+  // Function to clear all elements from the current slide
+  const clearCanvas = () => {
+    if (currentSlide) {
+      // Create a copy of the slides array
+      const updatedSlides = [...slides];
+      
+      // Create a new slide object with no elements
+      updatedSlides[currentSlideIndex] = {
+        ...currentSlide,
+        elements: []
+      };
+      
+      // Update the slides
+      setSlides(updatedSlides);
+      
+      // Clear the selected element
+      setSelectedElement(null);
+    }
   };
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
-      {/* Top navigation bar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-white">
-        <div className="flex items-center">
-          <button className="mr-3 text-gray-600">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
-          <h1 className="text-gray-800 text-lg font-medium">SVG Editor UI for Interactive Slides</h1>
-        </div>
-        <div className="flex items-center">
-          <div className="flex rounded-md overflow-hidden border border-gray-300 mr-3">
-            <button 
-              className={`px-3 py-1 text-sm ${viewMode === 'design' ? 'bg-gray-200' : 'bg-white'} hover:bg-gray-100 transition-colors duration-200`}
-              onClick={() => {
-                setViewMode('design');
-                // When switching to design mode, make sure we have code editor visible
-                if (!isCodeVisible) setIsCodeVisible(true);
-              }}
-            >
-              Design
-            </button>
-            <button 
-              className={`px-3 py-1 text-sm ${viewMode === 'preview' ? 'bg-gray-200' : 'bg-white'} hover:bg-gray-100 transition-colors duration-200`}
-              onClick={() => setViewMode('preview')}
-            >
-              Preview
-            </button>
-          </div>
-          <button className="text-gray-600" onClick={handleNew}>
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
-        </div>
-      </div>
+      {/* Header */}
+      <Header 
+        onNew={handleNew}
+        onSave={handleSave}
+        onExport={() => setIsExportDialogOpen(true)}
+        onImport={handleImport}
+        onToggleCode={toggleCodeVisibility}
+        isCodeVisible={isCodeVisible}
+      />
 
-      {/* Sub header with editor title and actions */}
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-white">
-        <h2 className="text-xl font-semibold text-gray-800">SVG Slide Editor</h2>
-        <div className="flex space-x-2">
-          <button 
-            onClick={toggleCodeVisibility}
-            className="px-4 py-2 bg-blue-50 text-blue-600 rounded-md flex items-center hover:bg-blue-100 transition-colors duration-200"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 0h8v12H6V4z" clipRule="evenodd" />
-            </svg>
-            {isCodeVisible ? 'Hide Code' : 'Show Code'}
-          </button>
-          <button 
-            onClick={() => setViewMode(viewMode === 'design' ? 'preview' : 'design')}
-            className={`px-4 py-2 rounded-md flex items-center transition-colors duration-200 ${
-              viewMode === 'preview' 
-                ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' 
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-            </svg>
-            {viewMode === 'preview' ? 'Edit Mode' : 'Preview Mode'}
-          </button>
-          <button 
-            onClick={handleSave}
-            className="px-4 py-2 bg-green-50 text-green-600 rounded-md flex items-center hover:bg-green-100 transition-colors duration-200"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V5zm11 1H6v8l4-2 4 2V6z" clipRule="evenodd" />
-            </svg>
-            Save
-          </button>
-        </div>
-      </div>
-
-      {/* Main editor area */}
+      {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left toolbar with drawing tools */}
         <div className="w-16 bg-white border-r flex flex-col items-center py-4 space-y-6">
@@ -199,6 +169,9 @@ function Editor() {
             currentTool={currentTool}
             onChangeTool={setCurrentTool}
             onAddElement={addElement}
+            onClearCanvas={clearCanvas}
+            isPreviewMode={isPreviewMode}
+            onTogglePreviewMode={togglePreviewMode}
           />
         </div>
         
@@ -213,6 +186,7 @@ function Editor() {
               onAddElement={addElement}
               onDeleteElement={deleteElement}
               currentTool={currentTool}
+              isPreviewMode={isPreviewMode}
             />
           ) : (
             <div className="w-full h-full p-4 flex items-center justify-center bg-gray-50">
@@ -342,6 +316,14 @@ function Editor() {
           </div>
         </div>
       )}
+
+      {/* Export Dialog */}
+      <ExportDialog 
+        isOpen={isExportDialogOpen}
+        onClose={() => setIsExportDialogOpen(false)}
+        elements={currentElements}
+        title={`Slide ${currentSlideIndex + 1}`}
+      />
     </div>
   );
 }
