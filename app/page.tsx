@@ -324,6 +324,26 @@ function Editor() {
         elements={currentElements}
         title={`Slide ${currentSlideIndex + 1}`}
       />
+      
+      {/* Feature Announcement */}
+      <div className="fixed bottom-4 right-4">
+        <div className="bg-white p-4 rounded-lg shadow-lg border border-purple-200 max-w-sm">
+          <div className="flex items-center mb-2">
+            <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center mr-3">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </div>
+            <h3 className="font-bold text-gray-800">New Feature: Markdown Editor</h3>
+          </div>
+          <p className="text-sm text-gray-600 mb-3">
+            Try our new Markdown Editor with live preview, interactive JavaScript code blocks, and file management.
+          </p>
+          <a href="/markdown-editor" className="inline-block px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition text-sm">
+            Try It Now
+          </a>
+        </div>
+      </div>
     </div>
   );
 }

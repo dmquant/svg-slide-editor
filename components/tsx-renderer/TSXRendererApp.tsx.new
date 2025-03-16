@@ -1,0 +1,260 @@
+'use client';
+
+import React, { useState, useCallback } from 'react';
+import { useTSXRenderer } from '@/hooks/useTSXRenderer';
+import TSXCodeEditor from '@/components/tsx-renderer/TSXCodeEditor';
+import ImportTSXDialog from '@/components/tsx-renderer/ImportTSXDialog';
+
+// Default example TSX code
+const DEFAULT_TSX_CODE = `// You can use the following pre-defined components:
+// Button, Card, Text, Flex
+// And React hooks: useState, useEffect, useRef
+
+const Counter = () => {
+  const [count, setCount] = useState(0);
+  
+  return (
+    <Card title="Counter Example">
+      <Text size="xl" weight="bold">{count}</Text>
+      
+      <Flex gap={3} justify="center" className="mt-4">
+        <Button 
+          color="red" 
+          onClick={() => setCount(count - 1)}
+        >
+          Decrease
+        </Button>
+        
+        <Button 
+          color="green" 
+          onClick={() => setCount(count + 1)}
+        >
+          Increase
+        </Button>
+      </Flex>
+    </Card>
+  );
+};
+
+export default Counter;
+`;
+
+// Let's add some more examples users can switch between
+const EXAMPLES = {
+  counter: DEFAULT_TSX_CODE,
+  todo: `// Todo List Example
+
+const TodoApp = () => {
+  const [todos, setTodos] = useState([]);
+  const [input, setInput] = useState('');
+  
+  const addTodo = () => {
+    if (input.trim()) {
+      setTodos([...todos, { text: input, completed: false }]);
+      setInput('');
+    }
+  };
+  
+  const toggleTodo = (index) => {
+    const newTodos = [...todos];
+    newTodos[index].completed = !newTodos[index].completed;
+    setTodos(newTodos);
+  };
+  
+  return (
+    <Card title="Todo List">
+      <Flex gap={2} className="mb-4">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && addTodo()}
+          className="border p-2 flex-1 rounded"
+          placeholder="Add a todo..."
+        />
+        <Button onClick={addTodo}>Add</Button>
+      </Flex>
+      
+      {todos.length === 0 ? (
+        <Text>No todos yet! Add one above.</Text>
+      ) : (
+        <div className="space-y-2">
+          {todos.map((todo, index) => (
+            <div 
+              key={index}
+              className="flex items-center p-2 border rounded"
+              onClick={() => toggleTodo(index)}
+            >
+              <input 
+                type="checkbox" 
+                checked={todo.completed} 
+                readOnly 
+                className="mr-2"
+              />
+              <Text className={todo.completed ? 'line-through' : ''}>
+                {todo.text}
+              </Text>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+};
+
+export default TodoApp;
+`
+};
+
+const TSXRendererApp: React.FC = () => {
+  const [tsxCode, setTSXCode] = useState<string>(DEFAULT_TSX_CODE);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { renderedComponent, compileError } = useTSXRenderer(tsxCode);
+
+  // Handle file import
+  const handleImportTSX = useCallback((content: string) => {
+    setTSXCode(content);
+    setIsImportDialogOpen(false);
+  }, []);
+
+  // Handle code changes from the editor
+  const handleCodeChange = useCallback((newCode: string) => {
+    setTSXCode(newCode);
+    setError(null);
+  }, []);
+
+  return (
+    <div className="container mx-auto p-4">
+      <div className="mb-6 flex justify-between items-center">
+        <h1 className="text-2xl font-bold">TSX Renderer</h1>
+        <div className="flex gap-2">
+          <div className="dropdown relative">
+            <button
+              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition flex items-center"
+              onClick={() => {
+                const menu = document.getElementById('example-menu');
+                if (menu) menu.classList.toggle('hidden');
+              }}
+            >
+              Examples
+              <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <div id="example-menu" className="hidden absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg z-10">
+              <div className="p-2">
+                <button 
+                  className="w-full text-left px-4 py-2 text-gray-700 hover:bg-purple-100 rounded"
+                  onClick={() => {
+                    setTSXCode(EXAMPLES.counter);
+                    document.getElementById('example-menu')?.classList.add('hidden');
+                  }}
+                >
+                  Counter Example
+                </button>
+                <button 
+                  className="w-full text-left px-4 py-2 text-gray-700 hover:bg-purple-100 rounded"
+                  onClick={() => {
+                    setTSXCode(EXAMPLES.todo);
+                    document.getElementById('example-menu')?.classList.add('hidden');
+                  }}
+                >
+                  Todo List Example
+                </button>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsImportDialogOpen(true)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
+          >
+            Import TSX
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Code Editor */}
+        <div className="border rounded-md shadow-sm">
+          <div className="bg-gray-100 p-3 border-b">
+            <h2 className="font-semibold">TSX Code</h2>
+          </div>
+          <div className="p-4 h-[500px]">
+            <TSXCodeEditor 
+              value={tsxCode} 
+              onChange={handleCodeChange} 
+              language="tsx"
+            />
+          </div>
+        </div>
+
+        {/* Rendered Output */}
+        <div className="border rounded-md shadow-sm">
+          <div className="bg-gray-100 p-3 border-b">
+            <h2 className="font-semibold">Rendered Component</h2>
+          </div>
+          <div className="p-4 h-[500px] overflow-auto">
+            {compileError ? (
+              <div className="text-red-500 whitespace-pre-wrap">
+                <h3 className="font-bold mb-2">Compilation Error:</h3>
+                <code>{compileError}</code>
+              </div>
+            ) : error ? (
+              <div className="text-red-500 whitespace-pre-wrap">
+                <h3 className="font-bold mb-2">Runtime Error:</h3>
+                <code>{error}</code>
+              </div>
+            ) : renderedComponent ? (
+              <div className="p-4 border rounded bg-white">
+                <ErrorBoundary onError={(e) => setError(e.message)}>
+                  {renderedComponent}
+                </ErrorBoundary>
+              </div>
+            ) : (
+              <div className="text-gray-500 flex items-center justify-center h-full">
+                <p>Enter or import TSX code to see it rendered here</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Import Dialog */}
+      {isImportDialogOpen && (
+        <ImportTSXDialog 
+          onClose={() => setIsImportDialogOpen(false)}
+          onImport={handleImportTSX}
+        />
+      )}
+    </div>
+  );
+};
+
+// Error Boundary Component to catch runtime errors
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode; onError: (error: Error) => void },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode; onError: (error: Error) => void }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    this.props.onError(error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return null; // Error is handled in parent component
+    }
+    return this.props.children;
+  }
+}
+
+export default TSXRendererApp; 

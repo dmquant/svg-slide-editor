@@ -27,6 +27,18 @@ const Navigation: React.FC = () => {
           >
             SVG Viewer
           </Link>
+          <Link 
+            href="/tsx-renderer" 
+            className={`py-1 ${pathname === '/tsx-renderer' ? 'border-b-2 border-purple-500' : 'hover:text-gray-300'}`}
+          >
+            TSX Renderer
+          </Link>
+          <Link 
+            href="/markdown-editor" 
+            className={`py-1 ${pathname === '/markdown-editor' ? 'border-b-2 border-purple-500' : 'hover:text-gray-300'}`}
+          >
+            Markdown Editor
+          </Link>
         </div>
       </div>
     </nav>
